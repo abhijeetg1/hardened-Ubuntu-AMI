@@ -1,0 +1,73 @@
+---
+- name: Create and mount /var/log partition on /dev/nvme1n1
+  hosts: ubuntu
+  become: yes
+  collections:
+    - community.general
+
+  tasks:
+    - name: Partition /dev/nvme1n1 (create 1 primary partition)
+      community.general.parted:
+        device: /dev/nvme1n1
+        number: 1
+        state: present
+        part_type: primary
+        fs_type: ext4
+        resize: yes
+
+    - name: Format /dev/nvme1n1p1 as ext4 filesystem
+      filesystem:
+        fstype: ext4
+        dev: /dev/nvme1n1p1
+
+    - name: Stop logging services
+      service:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - rsyslog
+        - systemd-journald
+
+    - name: Backup current /var/log to /var/log_old
+      command: mv /var/log /var/log_old
+      args:
+        removes: /var/log
+
+    - name: Create new /var/log directory
+      file:
+        path: /var/log
+        state: directory
+        mode: '0755'
+
+    - name: Mount /dev/nvme1n1p1 to /var/log
+      mount:
+        path: /var/log
+        src: /dev/nvme1n1p1
+        fstype: ext4
+        opts: defaults
+        state: mounted
+
+    - name: Copy old logs back to /var/log
+      command: cp -a /var/log_old/. /var/log/
+
+    - name: Remove backup /var/log_old directory
+      file:
+        path: /var/log_old
+        state: absent
+
+    - name: Add mount to /etc/fstab
+      mount:
+        path: /var/log
+        src: /dev/nvme1n1p1
+        fstype: ext4
+        opts: defaults
+        state: present
+
+    - name: Start logging services
+      service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - rsyslog
+        - systemd-journald
+
